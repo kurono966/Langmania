@@ -1,0 +1,78 @@
+/* Functional signals can weaken, be reinforced, grammaticalize, and be renewed.
+   Negative reinforcement is negative concord: two exponents, one negative meaning. */
+(function(root){
+const D=root.DriftData,P=root.DriftPhonology,clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x)),C=()=>root.DriftCycles;
+const channelDefinitions=[['subject','主格','ga',1],['object','目的格','o',1],['past','過去','ta',.7],['negative','否定','nai',.6],['future','未来','iku',.65],['perfect','完了','shimau',.45],['possession','所有','motsu',.5]];
+const negative={行く:'ikanai',来る:'konai',見る:'minai',聞く:'kikanai',食べる:'tabenai',飲む:'nomanai',話す:'hanasanai',歩く:'arukanai',眠る:'nemuranai',書く:'kakanai',持つ:'motanai',終わる:'owaranai',しまう:'shimawanai'};
+const sourcePlans={
+ subject:[['人','参加者の名詞→主語標識'],['自分','強調代名詞→主語標識']],object:[['道','到達経路→対象標識'],['ところ','場所→対象の後置詞'],['方','方向→対象標識']],
+ past:[['以前','以前という時間副詞→過去標識'],['終わる','完了動作→過去標識']],
+ future:[['来る','接近する事態→未来'],['思う','意図→未来'],['始める','開始→将来の事態']],
+ negative:[['一つも','最小量の否定強調→否定形式'],['少しも','程度の否定強調→否定形式'],['全く','程度の強調→否定形式']],
+ perfect:[['すでに','既完了の副詞→完了標識'],['終わる','動作の終結→完了標識']],
+ possession:[['ところ','所属場所→所有関係'],['人','所有者→所有関係']]
+};
+function initialize(r){r.grammar.channels=Object.fromEntries(channelDefinitions.map(([id,name,form,rate])=>[id,{id,name,form:D.tokenize(form),originalForm:D.tokenize(form),initialForm:D.tokenize(form),source:name,sourceId:null,active:!['future','perfect','possession'].includes(id),phase:'inherited',stage:3,binding:'suffix',rate,integrity:1,usage:0,wearBudget:0,lastWear:0,since:0,cycle:0,oldForm:null,sourceHistory:[],strategy:null,repair:null,history:[],lostCount:0}]));r.grammar.strategyHistory=[];r.grammar.agreement=null;r.grammar.functionalMetrics={};}
+function event(sim,r,ch,title,detail,rule,before,after,causes=[],direction='reanalysis'){const e=sim.log(r.id,'grammar-cycle',title,detail,{rule,channel:ch.id,affectedWords:Number.isInteger(ch.sourceId)?[ch.sourceId]:[],adoption:ch.integrity,causes,before:[...before],after:[...after],direction,cycle:ch.cycle});ch.history.push(e.id);return e;}
+function integrity(r,ch){if(!ch.active)return 1;if(ch.strategy==='order')return r.grammar.strictOrder?1:.25;if(ch.strategy==='agreement')return r.grammar.agreement?.share||.1;if(!ch.form.length)return 0;const lengthSupport=C().cost(ch.form)/Math.max(.7,C().cost(ch.originalForm)*.55);const adoption=ch.repair?.share??1;const competing=Object.values(r.grammar.channels).filter(o=>o.id!==ch.id&&o.active&&o.form.length&&o.form.join('|')===ch.form.join('|')).length;return clamp((lengthSupport-competing*.3)*adoption+(1-adoption)*(ch.oldForm?.length?.25:0));}
+function evaluate(r){const channels=r.grammar.channels;if(!channels)return {informationLoss:0,ambiguity:0,cost:0,morphemes:0,affixes:0};const active=Object.values(channels).filter(ch=>ch.active),info=active.reduce((s,ch)=>s+(1-integrity(r,ch))*ch.rate,0)/Math.max(1,active.reduce((s,ch)=>s+ch.rate,0));const roles=[channels.subject,channels.object].reduce((s,ch)=>s+(1-integrity(r,ch)),0)/2;const orderSupport=r.grammar.strictOrder?.65:0,agreementSupport=r.grammar.agreement?.share||0;
+ const m={informationLoss:clamp(info),ambiguity:clamp(roles*(1-orderSupport)*(1-agreementSupport*.75)+info*.25),cost:active.reduce((s,ch)=>s+C().cost(ch.form)*ch.rate+(ch.oldForm?C().cost(ch.oldForm)*.4:0),0),morphemes:active.filter(ch=>ch.form.length).length+(r.grammar.agreement?1:0),affixes:active.filter(ch=>(ch.phase==='affix'||ch.phase==='inherited'&&['past','negative'].includes(ch.id))&&ch.form.length).length+(r.grammar.agreement?.phase==='affix'?1:0),economy:0,distinctiveness:info};m.economy=clamp(m.cost/22);r.grammar.functionalMetrics=m;return m;}
+function selectStrategy(sim,r,ch){const identity=r.identity,contact=r.contact,education=r.education,h=r.grammar.strategyHistory;const candidates=[{kind:'particle',weight:.25+identity*2+(ch.strategy==='particle'?.2:0)},{kind:'order',weight:.2+education*2+(r.grammar.strictOrder?.5:0)},{kind:'agreement',weight:.1+contact*1.1+r.groups.reduce((s,g)=>s+g.bilingual*g.share,0)+(.7*(1-education))}];for(const c of candidates)c.weight+=h.filter(s=>s===c.kind).length*.15;return C().choose(sim,candidates).kind;}
+function compensate(sim,r,ch){if(!ch.active||(ch.repair&&ch.phase!=='lost')||ch.strategy==='order'||ch.strategy==='agreement')return false;ch.integrity=integrity(r,ch);if(ch.integrity>(ch.id==='negative'?.8:.55)&&ch.form.length)return false;
+ const before=[...ch.form],parents=ch.history.slice(-2);let strategy=['subject','object'].includes(ch.id)?selectStrategy(sim,r,ch):'analytic';r.grammar.strategyHistory.push(strategy);
+ if(strategy==='order'){r.grammar.strictOrder=true;ch.strategy='order';ch.form=[];ch.phase='fixed-order';ch.integrity=1;event(sim,r,ch,'格情報の消失を語順固定で補償',`${ch.name}の弱化に対し、教育・既存語順・過去の解決法から${r.grammar.order}を固定。主語と目的語を語順で区別。`,'case-order-compensation',before,[],parents);return true;}
+ if(strategy==='agreement'){const s=C().source(r,'私'),form=s.phonemes.slice(0,2);r.grammar.agreement={form,share:.15,usage:0,phase:'independent',paradigm:{first:[...form],second:['n','a'],third:['h','i']}};ch.strategy='agreement';ch.form=[];ch.phase='agreement';event(sim,r,ch,'格情報の消失を代名詞・動詞一致で補償',`${ch.name}の弱化を、代名詞由来の人称標識の併用で補う。接触・若年話者・既存の構文慣習が選択を支える。`,'case-agreement-compensation',before,form,parents,'lengthening');return true;}
+ const plans=sourcePlans[ch.id],available=plans.filter(([meaning])=>meaning!==ch.sourceHistory.at(-1));const [meaning,relation]=available[(r.grammar.strategyHistory.length+ch.cycle)%available.length]||plans[0],s=C().source(r,meaning);if(!s)return false;
+ ch.oldForm=before.length?[...before]:null;ch.form=[...s.phonemes];ch.originalForm=[...s.phonemes];ch.source=meaning;ch.sourceId=s.id;ch.sourceHistory.push(meaning);ch.phase='independent';ch.binding=['negative','past','future','perfect'].includes(ch.id)?'prefix':'suffix';ch.stage=0;ch.cycle++;ch.usage=0;ch.wearBudget=0;ch.since=sim.year;ch.lastWear=sim.year;ch.repair={relation,reason:ch.name+'の情報消失を補う',since:sim.year,share:.12};ch.weakenedStop=false;ch.following=false;ch.strategy=strategy;ch.integrity=integrity(r,ch);
+ event(sim,r,ch,ch.id==='negative'?'否定の弱化を補う強調語を追加':ch.id==='past'?'過去情報を補う時間副詞の使用が増加':ch.id==='future'?'消えた未来表現を別の動詞で更新':'新しい独立語で文法情報を補償',`${ch.name}：${D.hiragana(before)||'ゼロ形'} → ${meaning}。${relation}。独立語の併用から始まり、反復使用を経て文法化する。`,'grammatical-renewal',before,ch.form,parents,'lengthening');return true;
+}
+// Erosion operates in an unstressed grammatical position after a vowel-final stem.
+// Unlike lexical deletion, a marker may reach zero while the host word remains intact.
+function erode(form,ch){if(!form.length)return null;const p=[...form];let rule,next;
+ if(p.length===1&&P.vowel(p[0])){rule='母音末語幹との母音融合（境界でV+V→V）';next=[];}
+ else if(p.length===2&&!P.vowel(p[0])&&P.vowel(p[1])){if(['t','k','b','p'].includes(p[0])&&!ch.weakenedStop){rule='母音間の有声化（文法語境界 V_CV）';next=[{t:'d',k:'g',b:'w',p:'b'}[p[0]],p[1]];}else if(['d','g','b','w'].includes(p[0])){rule='母音間で弱化した子音の脱落（V_CV）';next=[p[1]];}else{rule='頻用する弱い1モーラ標識の脱落（V_CV#）';next=[];}}
+ else if(p[0]==='n'&&p.slice(1).every(P.vowel)){rule='母音間鼻音の弱化・脱落（頻出する否定標識）';next=p.slice(1);}
+ else{const fusion={ai:'e',ou:'u',ei:'i'}[p.join('')];if(fusion){rule='標識内の母音融合';next=[fusion];}else if(P.vowel(p[0])&&P.analyze(p).morae.length>=2){rule='弱い語頭母音の脱落';next=p.slice(1);}else if(['n','m','ŋ'].includes(p.at(-1))&&p.length>=3){rule='標識末の鼻音の弱化';next=p.slice(0,-1);}else if(P.analyze(p).morae.length>=2){const first=P.analyze(p).morae[0].phonemes.length;rule='高頻度化した標識の語頭モーラ縮約';next=p.slice(first);if(next[0]===next[1]){next=next.slice(1);rule+='と促音の解消';}}else{rule='弱い文法音節のゼロ化';next=[];}}
+ if(next.length&&!P.safe(next,p))return null;return {form:next,rule};
+}
+function constructionForm(c){const forms={future:['teiku','teiku','teku','ku'],perfect:['teshimau','teshimau','teshimau','chau'],possession:['gamotsu','gamotsu','motsu','mo']};return D.tokenize(forms[c.id][c.stage]);}
+function followConstruction(sim,r,ch){if(ch.active)return;const c=r.grammar.constructions.find(c=>c.id===ch.id);if(!c||c.stage<1)return;ch.form=constructionForm(c);ch.originalForm=[...ch.form];ch.source=root.DriftGrammar.paths.find(p=>p.id===c.id).source;ch.sourceId=r.words.find(w=>w.meaning===ch.source)?.id??null;ch.active=true;ch.phase=c.stage===3?'affix':'auxiliary';ch.stage=c.stage;ch.following=true;ch.since=sim.year;}
+function tickChannel(sim,r,ch){followConstruction(sim,r,ch);if(!ch.active)return;
+ const construction=r.grammar.constructions.find(c=>c.id===ch.id);if(ch.following&&ch.cycle===0&&!ch.repair&&construction&&!construction.cycling){ch.form=constructionForm(construction);ch.originalForm=[...ch.form];ch.stage=construction.stage;ch.phase=ch.stage===3?'affix':'auxiliary';if(ch.stage===3){construction.cycling=true;ch.following=false;ch.lastWear=sim.year;}}
+ if(ch.strategy==='order'||ch.strategy==='agreement'){ch.integrity=integrity(r,ch);return;}
+ ch.usage+=5*ch.rate*(.7+r.contact*.35+r.groups[0].share*.5);
+ if(ch.repair)ch.repair.share=clamp(ch.repair.share+.045*(1-r.education*.25));
+ if(ch.repair&&ch.stage<3){const target=ch.usage>=95?3:ch.usage>=55?2:ch.usage>=20?1:0;if(target>ch.stage){ch.stage++;const before=[...ch.form];ch.phase=ch.stage===3?'affix':ch.stage===2?'clitic':'grammatical-word';if(ch.id==='negative'&&ch.stage>=2&&ch.oldForm){const old=[...ch.oldForm];ch.oldForm=null;event(sim,r,ch,'否定一致から古い否定要素が消失',`補強語「${ch.source}」が単独で否定を担うようになり、旧否定${D.hiragana(old)}が消える。否定の意味は一つのまま。`,'negative-cycle-loss',old,[],ch.history.slice(-1),'shortening');}
+ event(sim,r,ch,ch.id==='negative'&&ch.stage===1?'二つの要素による否定一致が一般化':ch.stage===3?'補償語が新しい接辞へ':ch.stage===2?'頻出する補償語が接語へ':'独立語が文法的標識へ',`${ch.name}：${ch.repair.relation}。使用量 ${ch.usage.toFixed(0)}。${ch.stage===3?'発話内で宿主と結合し、再び摩耗の対象となる。':'語彙的な意味から文法機能が慣用化する。'}`,'renewal-grammaticalization',before,ch.form,ch.history.slice(-1));ch.lastWear=sim.year;if(ch.stage===3){ch.lastRepair={...ch.repair};ch.repair=null;}}}
+ if(ch.form.length&&sim.year>ch.since){const bound=['affix','clitic','inherited'].includes(ch.phase);let material=bound?['a',...ch.form]:[...ch.form];for(const state of r.rules.filter(s=>s.adoption>=.65&&s.status!=='lost'))material=P.rules.find(rule=>rule.id===state.id).fn(material,{frequency:95});const projected=bound?material.slice(1):material;if(projected.join('|')!==ch.form.join('|')){const before=[...ch.form];ch.form=projected;if(!ch.form.length){ch.phase='lost';ch.lostCount++;}event(sim,r,ch,'地域の音変化が文法標識にも波及',`${ch.name}：${D.hiragana(before)} → ${D.hiragana(projected)||'∅'}。文法語にも同じ音韻環境の規則を適用。`,'marker-sound-change',before,projected,ch.history.slice(-1),projected.length<before.length?'shortening':'sound-change');}}
+ const economical=r.competition?.economy??.4,distinct=r.competition?.distinctiveness??.1;
+ if(['inherited','affix','clitic'].includes(ch.phase)&&sim.year-ch.lastWear>=25){ch.wearBudget+=5*ch.rate*Math.max(.06,economical-distinct*.35)*(1-r.education*.35)*1.8;if(ch.wearBudget>=6){const next=erode(ch.form,ch);if(next){const before=[...ch.form];ch.form=next.form;ch.weakenedStop=true;ch.wearBudget=0;ch.lastWear=sim.year;ch.integrity=integrity(r,ch);if(!ch.form.length){ch.lostCount++;ch.phase='lost';}
+ event(sim,r,ch,ch.form.length?'文法標識の音韻的摩耗':'古い文法標識の消失',`${ch.name}：${D.hiragana(before)} → ${D.hiragana(ch.form)||'∅'}。${next.rule}。情報の減少は次の補償を誘発する。`,'marker-erosion',before,ch.form,ch.history.slice(-1),'shortening');}}}
+ ch.integrity=integrity(r,ch);compensate(sim,r,ch);
+ if(construction&&construction.cycling){construction.stage=ch.stage;construction.form=D.hiragana(ch.form);construction.cycle=ch.cycle;}
+}
+function tick(sim,r){for(const ch of Object.values(r.grammar.channels))tickChannel(sim,r,ch);
+ const g=r.grammar,a=g.agreement;if(a){a.usage+=5*(.7+r.contact);a.share=clamp(a.share+.045*(1-r.education*.3));if(a.usage>=65&&a.phase!=='affix'){a.phase='affix';sim.log(r.id,'grammar-cycle','代名詞由来の一致標識が動詞接辞へ','人称を繰り返し示す表現が動詞に結合し、失われた格情報を補う。',{rule:'agreement-affix',affectedWords:[68],adoption:a.share,causes:[],direction:'reanalysis',before:a.form,after:a.form});}}
+ for(const id of ['subject','object']){const ch=g.channels[id];if(ch.strategy==='order'||ch.strategy==='agreement'){g[id==='subject'?'particle':'object']='';continue;}g[id==='subject'?'particle':'object']=ch.form.length?(ch.phase==='inherited'&&id==='object'&&ch.form.join('')==='o'?'を':D.hiragana(ch.form)):'';}
+ if(g.agreement&&a.share>.35&&!r.words[68].renewal&&r.pressures.ambiguity>.1){const w=r.words[68],self=C().source(r,'自分');w.renewal={kind:'reflexive',components:[C().source(r,'私'),self],relation:'代名詞＋強調語',current:[...w.phonemes,...self.phonemes],original:[...w.phonemes,...self.phonemes],previous:null,contractionAdoption:1,share:.1,usage:0,stage:0,since:sim.year,lastReduction:sim.year,usedReductions:[],cycle:1,reason:'主語の識別を補う強調表現'};sim.log(r.id,'grammar-cycle','強調代名詞を併用して主語を明示',`「私＋自分」を反復し、通常の主語代名詞へ進む材料となる。`,{rule:'emphatic-pronoun',affectedWords:[68],adoption:.1,before:[...w.phonemes],after:w.renewal.current,causes:[],direction:'lengthening'});}
+ g.past=D.hiragana(g.channels.past.form)||'∅';evaluate(r);
+}
+function apply(r,p,w){return C().applyProductive(r,[...p],w);}
+function sentence(r,mode='present'){
+ const get=m=>r.words.find(w=>w.meaning===m),s=get('私'),o=get('魚'),v=get('見る'),g=r.grammar,ch=g.channels;
+ const token=(phonemes,role,wordId=null,bind=false,label=null)=>({phonemes:[...phonemes],role,wordId,bind,label});
+ const subject=[token(s.phonemes,'subject',s.id)],object=[token(o.phonemes,'object',o.id)];if(g.particle)subject.push(token(ch?.subject.form||D.tokenize('ga'),'subject-marker',null,!ch||['inherited','clitic','affix'].includes(ch.subject.phase),g.particle));if(g.object)object.push(token(ch?.object.form||D.tokenize('o'),'object-marker',null,!ch||['inherited','clitic','affix'].includes(ch.object.phase),g.object));
+ let verb=[token(v.phonemes,'verb',v.id)],adverbs=[];
+ if(mode!=='present'&&ch){const id=mode==='negative'?'negative':mode==='past'?'past':mode==='perfect'?'perfect':'future',c=ch[id];
+  if(!c.active){if(mode==='future')adverbs.push(token(get('明日').phonemes,'future-adverb',get('明日').id));else if(mode==='perfect'){const stem=apply(r,D.tokenize('mite'),v);verb=[token(stem,'verb',v.id),token(D.tokenize('shimau'),'perfect',null,false)];}}
+  else if(mode==='negative'&&c.phase==='inherited'&&c.form.join('')==='nai'){verb=[token(apply(r,D.tokenize(negative[v.meaning]),v),'verb',v.id)];}
+  else if(mode==='past'&&c.phase==='inherited'&&c.form.join('')==='ta'){verb=[token(root.DriftGrammar.pastForm(r,v),'verb',v.id)];}
+  else{let base=[...v.phonemes];if(mode==='negative')base=apply(r,D.tokenize(negative[v.meaning]).slice(0,-3),v);else if(mode==='past'&&c.phase==='inherited')base=apply(r,v.morphology.inherited.slice(0,-2),v);else if(['future','perfect'].includes(mode)&&c.cycle===0)base=apply(r,D.tokenize('mi'),v);
+   verb=[token(base,'verb',v.id)];if(c.oldForm?.length)verb.push(token(c.oldForm,'old-'+id,null,true));if(c.form.length){const t=token(c.form,id,null,c.phase==='affix'||c.phase==='inherited'||c.phase==='clitic');if(c.binding==='prefix'&&c.phase!=='inherited'){if(t.bind){verb[0].bind=true;verb.unshift({...t,bind:false});}else adverbs.push(t);}else verb.push(t);}
+  }
+ }
+ if(g.agreement&&g.agreement.share>=.5){const t=token(g.agreement.form,'agreement',null,false);if(g.agreement.phase==='affix'){verb[0].bind=true;verb.unshift(t);}else adverbs.push(t);}
+ return [...adverbs,...(g.order==='SOV'?[...subject,...object,...verb]:[...subject,...verb,...object])];
+}
+root.DriftGrammarCycles={channelDefinitions,sourcePlans,initialize,integrity,evaluate,selectStrategy,compensate,erode,tickChannel,tick,sentence};
+})(globalThis);

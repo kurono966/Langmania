@@ -15,17 +15,17 @@ const initialPairs=new Set();
 for(let a=0;a<D.lexicon.length;a++)for(let b=a+1;b<D.lexicon.length;b++)if(key(D.lexicon[a].phonemes)===key(D.lexicon[b].phonemes))initialPairs.add(a+':'+b);
 function collisions(r){const groups=new Map(),pairs=[];for(const w of r.words.filter(w=>w.active)){const k=key(w.phonemes);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(w);}for(const words of groups.values())for(let a=0;a<words.length;a++)for(let b=a+1;b<words.length;b++){const ids=[words[a].id,words[b].id].sort((a,b)=>a-b);if(!initialPairs.has(ids.join(':')))pairs.push(ids);}return pairs;}
 function measure(sim,r){
- const n=r.words.length,colliding=collisions(r),collisionWords=new Set(colliding.flat());let cost=0,initialCost=0,uncertainty=0,polysemy=0,morphology=0;
+ const cycle=sim.cycleEnabled?root.DriftCycles.assess(r):null;const n=r.words.length,colliding=collisions(r),collisionWords=new Set(colliding.flat());let cost=0,initialCost=0,uncertainty=0,polysemy=0,morphology=0;
  for(const w of r.words){const frequency=w.frequency/100,base=D.lexicon[w.id].phonemes.length;cost+=w.phonemes.length*frequency;initialCost+=base*frequency;uncertainty+=1-Math.max(...w.variants.map(v=>v.share));polysemy+=1-Math.max(...w.senses.map(s=>s.share));if(w.morphology)morphology+=4*w.morphology.analogicalShare*(1-w.morphology.analogicalShare);}
- const lengthRatio=cost/Math.max(1,initialCost),g=r.grammar,orderFixed=g.strictOrder||g.stage>=2;
- const caseLoss=(g.particle?0:.2)+(g.object?0:orderFixed?.06:.42);
+ const lengthRatio=cycle?cycle.costRatio:cost/Math.max(1,initialCost),g=r.grammar,orderFixed=g.strictOrder||g.stage>=2;
+ const rawCaseLoss=(g.particle?0:.2)+(g.object?0:orderFixed?.06:.42);const caseLoss=cycle?rawCaseLoss*(1-(g.agreement?.share||0))*(g.strictOrder?.2:1):rawCaseLoss;
  const constructionAmbiguity=g.constructions.reduce((sum,c)=>sum+(c.stage===1?.08:c.stage===2?.035:0),0);
- const ambiguity=clamp(caseLoss+collisionWords.size/n*.9+polysemy/n*.5+morphology/n*.2+constructionAmbiguity-(orderFixed?.16:0));
+ const ambiguity=clamp(cycle?cycle.ambiguity*.8+cycle.informationLoss*.4+caseLoss*.4+constructionAmbiguity*.3+morphology/n*.1:caseLoss+collisionWords.size/n*.9+polysemy/n*.5+morphology/n*.2+constructionAmbiguity-(orderFixed?.16:0));
  const contacts=sim.regions.filter(o=>o.id!==r.id).map(o=>{const strength=sim.contactStrength(r,o),difference=1-sim.similarity(r,o)/100;const bilingual=r.groups.reduce((s,g)=>s+g.share*g.bilingual,0);return strength*(.45+Math.min(1,r.contactYears[o.id]/100)*.25+bilingual*.5+difference);});
  const contact=clamp(contacts.reduce((a,b)=>a+b,0));
  const standardization=clamp(r.education*(.65+r.prestige*.25+uncertainty/n*.3)+(r.policies.some(p=>p.id==='standard')?.15:0));
  const effort=clamp((.28+r.contact*.24+r.groups[0].share*.15)*lengthRatio+g.constructions.filter(c=>c.stage===3).length*.015-standardization*.12);
- const clarity=clamp(.05+collisionWords.size/n*3+Math.max(0,1-lengthRatio)*.4+uncertainty/n*.35+ambiguity*.35);
+ const clarity=clamp((cycle?cycle.newConflicts.filter(p=>!p.exact).length/n*2+(1-cycle.identifiability)*.8:0)+.05+collisionWords.size/n*3+Math.max(0,1-lengthRatio)*.4+uncertainty/n*.35+ambiguity*.35);
  return {targets:{effort,clarity,ambiguity,standardization,contact},evidence:{collisionPairs:colliding,collisionWords:[...collisionWords],lengthRatio,variantUncertainty:uncertainty/n,polysemy:polysemy/n,caseLoss,constructionAmbiguity,contactChannels:contacts}};
 }
 function initialize(sim,r){const m=measure(sim,r);r.pressures={...m.targets};r.pressureEvidence=m.evidence;r.pressureState={effortBudget:0,repairBudget:0,grammarBudget:0,lastSound:-30,lastRepair:-25,semanticBridges:[]};r.pressureHistory=[{year:sim.year,...value(r)}];}
@@ -45,15 +45,16 @@ function respond(sim,r){
   const rule=candidates.sort((a,b)=>score(b)-score(a))[0];if(rule){const affected=r.words.filter(w=>rule.fn(w.phonemes,w).join('|')!==w.phonemes.join('|')).map(w=>w.id),parents=causes(sim,r,['word','grammaticalization','lexicon','policy']);const trigger=chain(sim,r,'省力化圧力が次の音変化を誘発',`長さ比 ${e.lengthRatio.toFixed(2)}・発話負荷から蓄積した圧力が「${rule.name}」を促進。明瞭性・標準化が高いほど蓄積は抑制。`,'effort',affected,parents);sim.startRule(r,rule,'蓄積した発音省力化圧力',null,{causes:[trigger.id],pressureTrigger:'effort'});s.effortBudget=0;s.lastSound=sim.year;}
  }
  // Repair actual NEW collisions only. Inherited Japanese homophones are not treated as a new crisis.
- if(s.repairBudget>=1&&sim.year-s.lastRepair>=25&&e.collisionPairs.length){
+ if(sim.cycleEnabled&&s.repairBudget>=.8)root.DriftCycles.repairLexicon(sim,r);
+ if(!sim.cycleEnabled&&s.repairBudget>=1&&sim.year-s.lastRepair>=25&&e.collisionPairs.length){
   for(const pair of e.collisionPairs){if(pair.some(id=>r.words[id].disambiguator?.share<.8))continue;const w=pair.map(id=>r.words[id]).filter(w=>!w.disambiguator).sort((a,b)=>a.frequency-b.frequency)[0];if(!w)continue;
    const classifier={自然:'木',身体:'人',社会:'人',食物:'米',生物:'人',時間:'日',動作:'言葉',性質:'言葉',指示:'人',数量:'一つ'}[w.category]||'言葉';const suffix=r.words.find(x=>x.meaning===classifier);const proposed=[...w.basePhonemes,...suffix.phonemes];if(!P.safe(proposed,w.basePhonemes)||pair.some(id=>key(r.words[id].phonemes)===key(proposed)))continue;
    const parents=causes(sim,r,['word','sound'],pair),trigger=chain(sim,r,'音の衝突から区別化複合へ',`${pair.map(id=>r.words[id].meaning).join('・')}が同音化。「${w.meaning}」に「${suffix.meaning}」由来の分類語を添える新形が発生。`,'clarity',[w.id],parents);
    w.disambiguator={suffixId:suffix.id,suffixPhonemes:[...suffix.phonemes],share:.08,since:sim.year};sim.log(r.id,'lexicon','同音衝突を避ける新語形',`「${w.meaning}」：${D.hiragana(w.phonemes)} → ${D.hiragana(proposed)}（旧形と共存）。`,{rule:'clarity-compound',affectedWords:[w.id],adoption:.08,causes:[trigger.id],before:[...w.phonemes],after:proposed});s.repairBudget=0;s.lastRepair=sim.year;break;
   }
  }
- for(const w of r.words.filter(w=>w.disambiguator)){const d=w.disambiguator;d.share=clamp(d.share+.025+p.clarity*.07-p.standardization*.015);}
- if(s.grammarBudget>=1.5&&!r.grammar.strictOrder&&p.ambiguity>.2){const g=r.grammar,parents=causes(sim,r,['grammar','semantic','word','analogy','grammaticalization']);const trigger=chain(sim,r,'曖昧性が文法の再固定を誘発','助詞省略・意味や構文の共存で役割の解釈が不安定になり、語順と標識の使用を固定。','ambiguity',[],parents);g.strictOrder=true;if(g.order==='SOV')g.object='を';sim.log(r.id,'grammar','曖昧性を補う固定語順',`${g.order}語順を厳格化し、${g.order==='SOV'?'目的語標識「を」も保持':'語順で主語・目的語を区別'}。曖昧性は次の評価から低下。`,{rule:'ambiguity-repair',affectedWords:[],adoption:1,causes:[trigger.id]});s.grammarBudget=0;}
+ for(const w of r.words.filter(w=>w.disambiguator&&!w.renewal)){const d=w.disambiguator;d.share=clamp(d.share+.025+p.clarity*.07-p.standardization*.015);}
+ if(s.grammarBudget>=1.5&&!r.grammar.strictOrder&&p.ambiguity>.2&&(!sim.cycleEnabled||(!r.grammar.channels.object.cycle&&!r.grammar.channels.object.strategy&&r.grammar.channels.object.integrity>.8))){const g=r.grammar,parents=causes(sim,r,['grammar','semantic','word','analogy','grammaticalization']);const trigger=chain(sim,r,'曖昧性が文法の再固定を誘発','助詞省略・意味や構文の共存で役割の解釈が不安定になり、語順と標識の使用を固定。','ambiguity',[],parents);g.strictOrder=true;if(g.order==='SOV')g.object='を';sim.log(r.id,'grammar','曖昧性を補う固定語順',`${g.order}語順を厳格化し、${g.order==='SOV'?'目的語標識「を」も保持':'語順で主語・目的語を区別'}。曖昧性は次の評価から低下。`,{rule:'ambiguity-repair',affectedWords:[],adoption:1,causes:[trigger.id]});s.grammarBudget=0;}
 }
 function bridge(sim,r,c,event){
  if(c.stage!==1||r.pressureState.semanticBridges.includes(c.id))return;

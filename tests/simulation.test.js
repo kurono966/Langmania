@@ -4,6 +4,8 @@ import '../data.js';
 import '../phonology.js';
 import '../lexicon.js';
 import '../grammar.js';
+import '../cycles.js';
+import '../grammar-cycles.js';
 import '../pressures.js';
 import '../simulation.js';
 const {Simulation,rules}=globalThis.Drift,D=globalThis.DriftData;

@@ -4,6 +4,8 @@ import '../data.js';
 import '../phonology.js';
 import '../lexicon.js';
 import '../grammar.js';
+import '../cycles.js';
+import '../grammar-cycles.js';
 import '../pressures.js';
 import '../simulation.js';
 const Q=DriftPressures,P=DriftPhonology;
@@ -17,7 +19,7 @@ test('inherited Japanese homophones do not count as newly caused collisions',()=
 });
 test('sound loss causes new collisions, which cause a traceable lexical repair',()=>{
  const {sim,r}=homophony();assert.equal(r.words[22].phonemes.join(''),'ha');assert.equal(r.words[14].phonemes.join(''),'ha');assert.ok(r.pressureEvidence.collisionPairs.some(pair=>pair.includes(22)&&pair.includes(14)));
- const beforeClarity=r.pressures.clarity;r.pressureState.repairBudget=2;Q.respond(sim,r);const w=r.words[14];assert.ok(w.disambiguator);assert.equal(w.disambiguator.suffixId,11);
+ const beforeClarity=r.pressures.clarity;r.pressureState.repairBudget=2;Q.respond(sim,r);const w=r.words[14];assert.ok(w.disambiguator);assert.ok(w.renewal.components.some(c=>c.meaning==='木'));
  const trigger=sim.events.find(e=>e.type==='cascade'&&e.rule==='clarity'),repair=sim.events.find(e=>e.rule==='clarity-compound');assert.ok(trigger.causes.some(id=>sim.events[id].type==='word'));assert.ok(repair.causes.includes(trigger.id));assert.ok(sim.trace(0,w.id).events.includes(repair));
  // Once the new compound is conventional, clarity improves; extra material creates effort again.
  w.disambiguator.share=1;sim.refresh(r);const after=Q.measure(sim,r);assert.ok(after.targets.clarity<beforeClarity);assert.ok(!after.evidence.collisionPairs.some(pair=>pair.includes(14)&&pair.includes(22)));
@@ -27,7 +29,7 @@ test('an in-flight collision repair is allowed to diffuse before adding another'
  const {sim,r}=homophony();r.pressureState.repairBudget=2;Q.respond(sim,r);const count=r.words.filter(w=>w.disambiguator).length;sim.year+=25;r.pressureState.repairBudget=2;Q.respond(sim,r);assert.equal(r.words.filter(w=>w.disambiguator).length,count);
 });
 test('ambiguity induces fixed grammar and then decreases without losing role distinctions',()=>{
- const sim=new Drift.Simulation('grammar-feedback'),r=sim.regions[0],g=r.grammar;g.particle='';g.stage=1;g.constructions.forEach(c=>c.stage=1);const before=Q.measure(sim,r);r.pressures={...before.targets};r.pressureEvidence=before.evidence;r.pressureState.grammarBudget=2;Q.respond(sim,r);assert.equal(g.strictOrder,true);assert.equal(g.object,'を');assert.ok(Q.measure(sim,r).targets.ambiguity<before.targets.ambiguity);assert.ok(sim.events.some(e=>e.rule==='ambiguity-repair'&&e.causes.length));
+ const sim=new Drift.Simulation('grammar-feedback',{cycles:false}),r=sim.regions[0],g=r.grammar;g.particle='';g.stage=1;g.constructions.forEach(c=>c.stage=1);const before=Q.measure(sim,r);r.pressures={...before.targets};r.pressureEvidence=before.evidence;r.pressureState.grammarBudget=2;Q.respond(sim,r);assert.equal(g.strictOrder,true);assert.equal(g.object,'を');assert.ok(Q.measure(sim,r).targets.ambiguity<before.targets.ambiguity);assert.ok(sim.events.some(e=>e.rule==='ambiguity-repair'&&e.causes.length));
 });
 test('grammaticalization creates a related sense which reinforces later construction use',()=>{
  const sim=new Drift.Simulation('bridge'),r=sim.regions[0],c=r.grammar.constructions[0],go=r.words.find(w=>w.meaning==='行く');c.uses=139;sim.year=125;DriftGrammar.evolve(sim,r);assert.equal(c.stage,1);assert.ok(go.senses.some(s=>s.meaning==='予定される'));

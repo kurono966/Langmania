@@ -17,15 +17,15 @@ function analogy(sim,r){
  }
 }
 function evolve(sim,r){const g=r.grammar;
- for(const c of g.constructions){const path=paths.find(p=>p.id===c.id);const source=r.words.find(w=>w.meaning===path.source);const lexicalFrequency=source?source.frequency/100:.65;
+ for(const c of g.constructions){if(c.cycling)continue;const path=paths.find(p=>p.id===c.id);const source=r.words.find(w=>w.meaning===path.source);const lexicalFrequency=source?source.frequency/100:.65;
  const usage=lexicalFrequency*(c.id==='future'?(.35+r.contact*.9):c.id==='perfect'?(.45+r.influence*.75):(.3+r.contact*.7));
  const targetMeaning={future:'予定される',perfect:'完了する',possession:'所有関係'}[c.id];const semanticSupport=source?.senses.filter(s=>s.meaning===targetMeaning).reduce((sum,s)=>sum+s.share,0)||0;const feedback=sim.pressureEnabled?(1+r.pressures.effort*(.5+c.stage*.25)+r.pressures.contact*.4)*(1+semanticSupport*.6):1;c.uses+=25*usage*feedback;c.share=Math.min(1,c.uses/(path.min*2));const target=Math.min(3,Math.floor(c.uses/path.min));if(target>c.stage){c.stage++;c.form=path.forms[c.stage];const event=sim.log(r.id,'grammaticalization',path.name,`${path.context}。${path.stages[c.stage-1]} → ${path.stages[c.stage]}：${c.form}。累積構文使用量 ${c.uses.toFixed(0)}。`,{rule:c.id,affectedWords:source?[source.id]:[],adoption:c.share,causes:sim.events.filter(e=>e.region===r.id&&((e.type==='grammaticalization'&&e.rule===c.id)||(e.type==='semantic'&&source&&e.affectedWords.includes(source.id)&&e.after===targetMeaning))).slice(-2).map(e=>e.id),before:path.forms[c.stage-1],after:c.form});if(sim.pressureEnabled)root.DriftPressures.bridge(sim,r,c,event);}
  }
  // Omission grows in locally predictable conversation. Object marking stays until a
  // contact-supported, fixed alternative order can disambiguate grammatical roles.
  g.particleOmission=Math.min(1,g.particleOmission+(.02+.035*r.contact)*(1-r.education)*(sim.pressureEnabled?Math.max(.2,1+r.pressures.effort*.6-r.pressures.ambiguity*.9-r.pressures.standardization*.45):1));
- if(g.particleOmission>.45&&g.stage===0){g.particle='';g.stage=1;sim.log(r.id,'grammar','主語助詞の任意省略が一般化','高頻度の対話で主語が予測可能になり「が」を省略。SOVと目的語標識「を」を維持。',{rule:'subject-omission',adoption:g.particleOmission});}
- if(g.stage===1&&g.contactEvidence>1.2){g.stage=2;g.order='SVO';g.object='';sim.log(r.id,'grammar','接触による語順の固定','二言語会話の後置目的語構文の反復、または接触先の固定語順の受容によりSVOが固定化。役割を語順で区別できるため、目的語助詞を省略。',{rule:'contact-order',adoption:Math.min(1,g.contactEvidence/2)});}
+ if(g.particleOmission>.45&&g.stage===0&&(!g.channels||g.channels.subject.phase==='inherited')){g.particle='';g.stage=1;sim.log(r.id,'grammar','主語助詞の任意省略が一般化','高頻度の対話で主語が予測可能になり「が」を省略。SOVと目的語標識「を」を維持。',{rule:'subject-omission',adoption:g.particleOmission});}
+ if(g.stage===1&&g.contactEvidence>1.2&&(!g.channels||g.channels.object.phase==='inherited')){g.stage=2;g.order='SVO';g.object='';sim.log(r.id,'grammar','接触による語順の固定','二言語会話の後置目的語構文の反復、または接触先の固定語順の受容によりSVOが固定化。役割を語順で区別できるため、目的語助詞を省略。',{rule:'contact-order',adoption:Math.min(1,g.contactEvidence/2)});}
  g.progress=g.constructions.reduce((s,c)=>s+c.stage,0)/3;
  analogy(sim,r);
 }

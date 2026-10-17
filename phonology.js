@@ -7,7 +7,7 @@ function structure(p){
   const x=p[i];
   if(vowel(x)){const m={onset:pending.splice(0),nucleus:x,coda:[],phonemes:[]};m.phonemes=[...m.onset,x];morae.push(m);syllables.push({onset:[...m.onset],nucleus:[x],coda:[],moraCount:1});}
   else if((x==='n'||x==='m'||x==='ŋ')&&!vowel(p[i+1])){morae.push({onset:[],nucleus:null,coda:[x],phonemes:[x]});if(syllables.length){syllables.at(-1).coda.push(x);syllables.at(-1).moraCount++;}else pending.push(x);}
-  else if(x===p[i+1]||(x==='t'&&['ts','ch'].includes(p[i+1]))){morae.push({onset:[],nucleus:null,coda:['Q'],phonemes:[x]});if(syllables.length){syllables.at(-1).coda.push('Q');syllables.at(-1).moraCount++;}}
+  else if(x===p[i+1]||(x==='t'&&['ts','ch'].includes(p[i+1]))){if(!syllables.length){pending.push(x);continue;}morae.push({onset:[],nucleus:null,coda:['Q'],phonemes:[x]});if(syllables.length){syllables.at(-1).coda.push('Q');syllables.at(-1).moraCount++;}}
   else pending.push(x);
  }
  // Adjacent vowel morae form a heavy syllable when their qualities agree.
@@ -49,7 +49,8 @@ function inventory(r){
 }
 function variants(r,w){let forms=[{phonemes:[...w.basePhonemes],share:1,source:w.origin||'継承語',path:[]}];
  for(const loan of w.loans||[]){forms.forEach(v=>v.share*=1-loan.share);forms.push({phonemes:[...loan.phonemes],share:loan.share,source:loan.source,path:[]});}
- if(w.disambiguator){const d=w.disambiguator,extra=forms.map(v=>({...v,phonemes:[...v.phonemes,...d.suffixPhonemes],share:v.share*d.share,source:'同音衝突による区別化複合'}));forms.forEach(v=>v.share*=1-d.share);forms.push(...extra);}
+ if(w.disambiguator&&!w.renewal){const d=w.disambiguator,extra=forms.map(v=>({...v,phonemes:[...v.phonemes,...d.suffixPhonemes],share:v.share*d.share,source:'同音衝突による区別化複合'}));forms.forEach(v=>v.share*=1-d.share);forms.push(...extra);}
+ if(root.DriftCycles)forms=root.DriftCycles.augment(r,w,forms);
  for(const state of r.rules.filter(s=>s.status!=='lost')){const rule=rules.find(x=>x.id===state.id);let next=[];let lexical=(.75+w.frequency/200)*(w.loans?.length ? .82 : 1);const adoption=Math.max(0,Math.min(1,(state.adoption-.025)*lexical));for(const v of forms){const p=rule.fn(v.phonemes,w);if(p.join('|')===v.phonemes.join('|'))next.push(v);else{next.push({...v,share:v.share*(1-adoption)});next.push({...v,phonemes:p,share:v.share*adoption,path:[...v.path,rule.id]});}}
  const merged=new Map();for(const v of next){let key=v.phonemes.join('|');if(merged.has(key))merged.get(key).share+=v.share;else merged.set(key,v);}forms=[...merged.values()].filter(v=>v.share>.0001).sort((a,b)=>b.share-a.share).slice(0,8);const sum=forms.reduce((s,v)=>s+v.share,0);forms.forEach(v=>v.share/=sum);
  }return forms.sort((a,b)=>b.share-a.share);

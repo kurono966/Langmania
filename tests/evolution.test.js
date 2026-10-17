@@ -4,6 +4,8 @@ import '../data.js';
 import '../phonology.js';
 import '../lexicon.js';
 import '../grammar.js';
+import '../cycles.js';
+import '../grammar-cycles.js';
 import '../pressures.js';
 import '../simulation.js';
 const {Simulation,rules}=Drift,P=DriftPhonology,D=DriftData;
@@ -58,7 +60,7 @@ test('semantic expansion follows explicit relations and supports polysemy and se
  const boat=r.words.find(w=>w.meaning==='船');boat.senses=[{meaning:'船',share:.1,original:true,since:0},{meaning:'大型船',share:.9,original:false,since:0,relation:'narrowing'}];s.year=150;s.random=()=>1;DriftLexicon.evolve(s,r);assert.equal(boat.senses.length,1);assert.equal(boat.senses[0].meaning,'大型船');assert.ok(boat.active);
 });
 test('long runs retain valid prosody, normalized distributions and consistent grammar',()=>{
- for(const seed of ['natural-1','natural-2','natural-3','natural-4']){const s=new Simulation(seed);for(let i=0;i<20;i++){s.advance(25);for(const r of s.regions){assert.ok(r.grammar.order==='SOV'?r.grammar.object==='を':r.grammar.order==='SVO'&&r.grammar.object==='');assert.ok(Math.abs(r.groups.reduce((sum,g)=>sum+g.share,0)-1)<1e-9);for(const w of [...r.words,...r.neologisms]){assert.ok(w.active&&w.phonemes.some(P.vowel));assert.ok(P.analyze(w.phonemes).valid);assert.ok(Math.abs(w.variants.reduce((sum,v)=>sum+v.share,0)-1)<1e-9);assert.ok(Math.abs(w.senses.reduce((sum,v)=>sum+v.share,0)-1)<1e-9);for(const v of w.variants)assert.ok(P.analyze(v.phonemes).valid);}}}assert.equal(s.regions[0].systemHistory.length,21);}
+ for(const seed of ['natural-1','natural-2','natural-3','natural-4']){const s=new Simulation(seed);for(let i=0;i<20;i++){s.advance(25);for(const r of s.regions){assert.ok(['SOV','SVO'].includes(r.grammar.order));assert.ok(r.grammar.object||r.grammar.strictOrder||r.grammar.agreement||r.grammar.channels.object.repair);assert.ok(Math.abs(r.groups.reduce((sum,g)=>sum+g.share,0)-1)<1e-9);for(const w of [...r.words,...r.neologisms]){assert.ok(w.active&&w.phonemes.some(P.vowel));assert.ok(P.analyze(w.phonemes).valid);assert.ok(Math.abs(w.variants.reduce((sum,v)=>sum+v.share,0)-1)<1e-9);assert.ok(Math.abs(w.senses.reduce((sum,v)=>sum+v.share,0)-1)<1e-9);for(const v of w.variants)assert.ok(P.analyze(v.phonemes).valid);}}}assert.equal(s.regions[0].systemHistory.length,21);}
 });
 test('per-word histories resolve to structured, reproducible events',()=>{
  const s=new Simulation('trace');s.advance(500);for(const r of s.regions)for(const w of r.words){const trace=s.trace(r.id,w.id);for(const e of trace.events){assert.ok(e.affectedWords.includes(w.id));assert.equal(e.region,r.id);assert.ok(e.rule&&e.social&&Number.isFinite(e.adoption));assert.ok(e.year>=0&&e.year<=500);}}assert.ok(s.events.some(e=>e.type==='word'&&Array.isArray(e.before)&&Array.isArray(e.after)));
@@ -69,6 +71,6 @@ test('linguistic forms do not change every year between evaluation intervals',()
 test('an isolated region is unaffected by random draws or interventions elsewhere',()=>{
  const a=new Simulation('causality'),b=new Simulation('causality');for(const s of [a,b])for(let i=0;i<3;i++)s.links[0][i]=s.links[i][0]=0;
  b.intervene('education',1);a.advance(500);b.advance(500);
- const linguistic=r=>({rules:r.rules,grammar:r.grammar,words:r.words.map(w=>({phonemes:w.phonemes,variants:w.variants,senses:w.senses,morphology:w.morphology})),population:r.population});
+ const linguistic=r=>({rules:r.rules,grammar:JSON.parse(JSON.stringify(r.grammar,(key,value)=>key==='history'?undefined:value)),words:r.words.map(w=>({phonemes:w.phonemes,variants:w.variants,senses:w.senses,morphology:w.morphology})),population:r.population});
  assert.deepEqual(linguistic(a.regions[0]),linguistic(b.regions[0]));
 });
