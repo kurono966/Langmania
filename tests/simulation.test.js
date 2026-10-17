@@ -1,0 +1,14 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import '../data.js';
+import '../phonology.js';
+import '../lexicon.js';
+import '../grammar.js';
+import '../simulation.js';
+const {Simulation,rules}=globalThis.Drift,D=globalThis.DriftData;
+test('90 initial entries and identical regional languages',()=>{let s=new Simulation('test');assert.equal(D.lexicon.length,90);assert.equal(s.metrics().similarity,100);assert.equal(s.metrics().changed,0);for(let w of D.lexicon)assert.ok(D.hiragana(w.phonemes));});
+test('initial transcription and context assimilation',()=>{assert.equal(D.hiragana(D.tokenize('mittsu')),'みっつ');assert.equal(D.hiragana(D.tokenize('kyou')),'きょう');assert.equal(rules.find(r=>r.id==='assimilation').fn(['s','a','n','p','o']).join(''),'sampo');});
+test('deterministic across step sizes and identical intervention histories',()=>{let a=new Simulation('repeat'),b=new Simulation('repeat');a.intervene('culture',2);b.intervene('culture',2);a.advance(100);for(let i=0;i<100;i++)b.advance(1);a.intervene('isolate',0);b.intervene('isolate',0);a.advance(400);b.advance(400);assert.deepEqual(a.regions,b.regions);assert.deepEqual(a.events,b.events);});
+test('rules apply to all matching environments and preserve nonmatching words',()=>{const rule=rules.find(r=>r.id==='voice');assert.equal(rule.fn(D.tokenize('sakana')).join(''),'sagana');assert.equal(rule.fn(D.tokenize('kawa')).join(''),'kawa');const s=new Simulation('rule'),r=s.regions[0];let expected=r.words.map(w=>rule.fn(w.phonemes,w));s.applyRule(r,rule);assert.deepEqual(r.words.map(w=>w.phonemes),expected);});
+test('intervention delayed, cooldown enforced, simulation capped',()=>{let s=new Simulation('limits'),before=s.regions[0].isolation;assert.ok(s.intervene('isolate',0));assert.equal(s.regions[0].isolation,before);assert.equal(s.intervene('culture',1),false);s.advance(30);assert.ok(s.regions[0].isolation>before);s.advance(1000);assert.equal(s.year,500);assert.equal(s.intervene('trade',0),false);});
+test('500 years creates divergence and intervention changes trajectories',()=>{for(const seed of ['DRIFT-2026','test','another','42']){let a=new Simulation(seed),b=new Simulation(seed);a.intervene('isolate',0);a.advance(500);b.advance(500);assert.ok(b.events.some(e=>e.type==='sound'));assert.ok(b.metrics().changed>0);assert.notDeepEqual(a.regions,b.regions);for(let r of a.regions){for(let w of r.words)assert.ok(w.phonemes.length>0);for(let k of ['contact','education','influence','isolation'])assert.ok(r[k]>=0&&r[k]<=1);}for(let v of Object.values(a.metrics()))assert.ok(Number.isFinite(v)&&v>=0&&v<=100);}});
