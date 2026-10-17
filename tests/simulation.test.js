@@ -4,6 +4,7 @@ import '../data.js';
 import '../phonology.js';
 import '../lexicon.js';
 import '../grammar.js';
+import '../pressures.js';
 import '../simulation.js';
 const {Simulation,rules}=globalThis.Drift,D=globalThis.DriftData;
 test('90 initial entries and identical regional languages',()=>{let s=new Simulation('test');assert.equal(D.lexicon.length,90);assert.equal(s.metrics().similarity,100);assert.equal(s.metrics().changed,0);for(let w of D.lexicon)assert.ok(D.hiragana(w.phonemes));});

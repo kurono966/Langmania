@@ -4,6 +4,7 @@ import '../data.js';
 import '../phonology.js';
 import '../lexicon.js';
 import '../grammar.js';
+import '../pressures.js';
 import '../simulation.js';
 const {Simulation,rules}=Drift,P=DriftPhonology,D=DriftData;
 const state=(id,adoption=.5)=>({id,adoption,status:'spreading',cohorts:[adoption,adoption,adoption],prestige:.8,since:0,milestone:0,established:false,cause:'test'});
